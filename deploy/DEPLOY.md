@@ -121,10 +121,11 @@ curl -s https://project.ratsdev.tech/api/health
 
 ## Backup
 
-O banco é `rats_pm`. Um dump manual:
+O banco é `rats_pm`. O cron que já existe para os outros bancos também guarda
+`/var/backups/cavedosol/rats-pm-<data>.dump`, com 14 dias de retenção.
+
+Para tirar um dump na mão:
 
 ```bash
 sudo -u postgres pg_dump -Fc rats_pm > /var/backups/rats_pm-$(date +%F).dump
 ```
-
-Vale incluir esse dump no cron de backup que já existe para os outros bancos.
