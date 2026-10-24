@@ -1,0 +1,22 @@
+[Unit]
+Description=rats pm (gerenciador de projetos)
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=ratsdevpm
+Group=ratsdevpm
+WorkingDirectory=/srv/ratsdev-pm/current
+EnvironmentFile=/srv/ratsdev-pm/.env.local
+Environment=NODE_ENV=production
+Environment=PORT=3003
+ExecStart=/usr/bin/node node_modules/next/dist/bin/next start -p 3003 -H 127.0.0.1
+Restart=always
+RestartSec=3
+UMask=0022
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

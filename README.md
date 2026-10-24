@@ -1,36 +1,111 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# rats pm
 
-## Getting Started
+Gerenciador de projetos da ratsdev. Quadro kanban por projeto, pessoas com acesso
+próprio, catálogo de status e colunas configuráveis por quadro. A interface segue
+o visual do site da ratsdev: terminal, tipografia mono e verde só no que é ação.
 
-First, run the development server:
+## Stack
+
+- Next.js 16 (App Router, Server Actions, Cache Components)
+- PostgreSQL 18
+- Tailwind CSS 4
+- Sem ORM: SQL direto com `pg`
+
+## Rodando local
+
+Crie um banco e aponte a `DATABASE_URL` para ele:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+cp .env.example .env.local
+# ajuste DATABASE_URL, SESSION_SECRET e ADMIN_PASSWORD local se precisar
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+`SESSION_SECRET` é obrigatório: é ele que assina o cookie de sessão. Gere um com:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Depois:
 
-## Learn More
+```bash
+npm install
+npm run migrate    # cria as tabelas de db/*.sql
+npm run seed       # cria status, colunas e um quadro de exemplo (só se estiver vazio)
+npm run create-user -- pedro@ratsdev.com.br "Pedro"
+npm run dev
+```
 
-To learn more about Next.js, take a look at the following resources:
+O `create-user` imprime a senha uma vez. Sem senha no terceiro argumento, ele
+gera uma. Não existe cadastro pelo site: conta nova só por esse script.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Scripts
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+| Script | O que faz |
+| --- | --- |
+| `npm run dev` | servidor de desenvolvimento na porta 3000 |
+| `npm run build` | build de produção |
+| `npm run start` | sobe o build |
+| `npm run lint` | ESLint |
+| `npm run typecheck` | TypeScript sem emitir arquivos |
+| `npm run migrate` | aplica `db/*.sql` em ordem e registra em `schema_migrations` |
+| `npm run seed` | popula o banco com o quadro de exemplo |
+| `npm run create-user` | cria ou redefine o acesso de uma pessoa |
 
-## Deploy on Vercel
+## Modelo de dados
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```
+people ─────────────┐
+  name, email, role  │  password_hash só existe para quem tem login
+  color, active      │
+                     │
+projects             │
+  name, description  │
+  archived           │
+   │                 │
+   └─ board_columns  │
+        name         │
+        status_id ───┼──> statuses (name, color, kind)
+        sort_order   │      kind: todo | doing | blocked | done
+        │            │
+        └─ tasks ────┘
+             title, description, priority, due_date, sort_order
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Cada tarefa pertence a uma coluna. O status da tarefa é o status da coluna
+(`tasks.column_id → board_columns.status_id`), então não há dois lugares para
+manter em sincronia: mover o cartão muda o status. `kind = 'done'` é o que conta
+como concluído nos números do painel.
+
+## Estrutura
+
+```
+app/
+  (app)/            área logada (layout com cabeçalho e navegação)
+    page.tsx        painel: números, projetos e prazos
+    projects/[id]/  quadro kanban e configuração de colunas
+    people/         cadastro de pessoas
+    statuses/       catálogo de status
+  actions/          server actions, uma por agregado
+  login/            entrada
+  api/health/       verificação usada no deploy
+components/         quadro, gaveta da tarefa, formulários e campos
+lib/
+  domain.ts         tipos do domínio
+  rows.ts           mapeamento linha do banco → domínio
+  queries.ts        leituras
+  auth.ts           sessão assinada com HMAC
+  passwords.ts      hash scrypt
+  validation.ts     schemas dos formulários (zod)
+db/                 migrações SQL
+scripts/            migrate, seed, create-user
+deploy/             nginx, systemd, script de publicação
+```
+
+## Deploy
+
+Instruções completas em [deploy/DEPLOY.md](deploy/DEPLOY.md). O resumo:
+
+```bash
+./deploy/deploy.sh
+```
