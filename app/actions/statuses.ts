@@ -75,7 +75,15 @@ export async function deleteStatus(
     );
   }
 
-  await query("delete from statuses where id = $1", [id]);
+  try {
+    await query("delete from statuses where id = $1", [id]);
+  } catch (error) {
+    if (isPgError(error, "23503")) {
+      return errorState("Uma coluna passou a usar esse status. Troque antes de excluir.");
+    }
+    throw error;
+  }
+
   refresh();
   return successState("Status excluído.");
 }

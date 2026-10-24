@@ -3,9 +3,14 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { ProjectCreateForm } from "@/components/project-create-form";
 import { EmptyState, SectionCommand, StatusDot } from "@/components/ui";
-import { formatDueDate, isOverdue } from "@/lib/dates";
+import { formatDueDate, isOverdueOn } from "@/lib/dates";
 import type { AgendaTask, ProjectSummary } from "@/lib/domain";
-import { getDashboardStats, listAgenda, listProjectSummaries } from "@/lib/queries";
+import {
+  getDashboardStats,
+  getToday,
+  listAgenda,
+  listProjectSummaries,
+} from "@/lib/queries";
 
 export const metadata: Metadata = {
   title: "projetos",
@@ -31,10 +36,11 @@ export default function DashboardPage() {
 }
 
 async function DashboardContent() {
-  const [stats, projects, agenda] = await Promise.all([
+  const [stats, projects, agenda, today] = await Promise.all([
     getDashboardStats(),
     listProjectSummaries(),
     listAgenda(6),
+    getToday(),
   ]);
 
   return (
@@ -107,7 +113,7 @@ async function DashboardContent() {
         ) : (
           <ul className="mt-3 border-t border-line">
             {agenda.map((item) => (
-              <AgendaRow key={item.id} item={item} />
+              <AgendaRow key={item.id} item={item} today={today} />
             ))}
           </ul>
         )}
@@ -169,8 +175,8 @@ function ProjectCard({ project }: { project: ProjectSummary }) {
   );
 }
 
-function AgendaRow({ item }: { item: AgendaTask }) {
-  const overdue = isOverdue(item.dueDate);
+function AgendaRow({ item, today }: { item: AgendaTask; today: string }) {
+  const overdue = isOverdueOn(item.dueDate, today);
 
   return (
     <li className="flex items-baseline gap-3 border-b border-line py-2 text-[13px]">

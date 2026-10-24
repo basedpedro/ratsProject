@@ -4,6 +4,7 @@ import { refresh } from "next/cache";
 import { requirePersonForAction } from "@/lib/auth";
 import { query, queryOne, withTransaction } from "@/lib/db";
 import { errorState, successState, type FormState } from "@/lib/form-state";
+import { isPgError } from "@/lib/db-errors";
 import { collectFieldErrors, moveTaskInput, taskInput } from "@/lib/validation";
 
 type ColumnRow = { id: string; project_id: string };
@@ -81,8 +82,8 @@ export async function updateTask(
   }
 
   const task = parsed.data;
-  const current = await queryOne<{ column_id: string }>(
-    "select column_id from tasks where id = $1",
+  const current = await queryOne<{ column_id: string; project_id: string }>(
+    "select column_id, project_id from tasks where id = $1",
     [id],
   );
 
@@ -90,33 +91,55 @@ export async function updateTask(
     return errorState("Tarefa não encontrada.");
   }
 
-  await query(
-    `update tasks
-        set title = $2, description = $3, assignee_id = $4,
-            priority = $5, due_date = $6, updated_at = now()
-      where id = $1`,
-    [id, task.title, task.description, task.assigneeId, task.priority, task.dueDate],
+  const targetColumn = await queryOne<ColumnRow>(
+    "select id, project_id from board_columns where id = $1",
+    [task.columnId],
   );
 
-  if (current.column_id !== task.columnId) {
-    const column = await queryOne<ColumnRow>(
-      "select id, project_id from board_columns where id = $1",
-      [task.columnId],
-    );
+  if (!targetColumn || targetColumn.project_id !== current.project_id) {
+    return errorState("Coluna não pertence ao projeto da tarefa.");
+  }
 
-    if (!column) {
-      return errorState("Coluna não encontrada.");
+  try {
+    await withTransaction(async (client) => {
+      if (current.column_id === task.columnId) {
+        await client.query(
+          `update tasks
+              set title = $2, description = $3, assignee_id = $4,
+                  priority = $5, due_date = $6, updated_at = now()
+            where id = $1`,
+          [id, task.title, task.description, task.assigneeId, task.priority, task.dueDate],
+        );
+        return;
+      }
+
+      const position = await client.query<{ next_order: number }>(
+        "select coalesce(max(sort_order) + 1, 0) as next_order from tasks where column_id = $1 and id <> $2",
+        [task.columnId, id],
+      );
+
+      await client.query(
+        `update tasks
+            set title = $2, description = $3, assignee_id = $4, priority = $5,
+                due_date = $6, column_id = $7, sort_order = $8, updated_at = now()
+          where id = $1`,
+        [
+          id,
+          task.title,
+          task.description,
+          task.assigneeId,
+          task.priority,
+          task.dueDate,
+          task.columnId,
+          position.rows[0]?.next_order ?? 0,
+        ],
+      );
+    });
+  } catch (error) {
+    if (isPgError(error, "23503")) {
+      return errorState("Responsável ou coluna não existem mais.");
     }
-
-    const position = await queryOne<{ next_order: number }>(
-      "select coalesce(max(sort_order) + 1, 0) as next_order from tasks where column_id = $1 and id <> $2",
-      [task.columnId, id],
-    );
-
-    await query(
-      "update tasks set column_id = $2, sort_order = $3, updated_at = now() where id = $1",
-      [id, task.columnId, position?.next_order ?? 0],
-    );
+    throw error;
   }
 
   refresh();
@@ -152,6 +175,23 @@ export async function moveTask(input: unknown): Promise<MoveTaskResult> {
   }
 
   const { taskId, columnId, beforeTaskId } = parsed.data;
+
+  const [task, targetColumn] = await Promise.all([
+    queryOne<{ project_id: string }>("select project_id from tasks where id = $1", [
+      taskId,
+    ]),
+    queryOne<ColumnRow>("select id, project_id from board_columns where id = $1", [
+      columnId,
+    ]),
+  ]);
+
+  if (!task) {
+    return { ok: false, error: "Tarefa não encontrada." };
+  }
+
+  if (!targetColumn || targetColumn.project_id !== task.project_id) {
+    return { ok: false, error: "Coluna não pertence ao projeto da tarefa." };
+  }
 
   try {
     await withTransaction(async (client) => {

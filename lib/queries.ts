@@ -139,6 +139,16 @@ export type DashboardStats = {
   activePeople: number;
 };
 
+// "Hoje" vem do banco, no fuso da equipe. Assim o servidor não precisa
+// chamar new Date() durante a renderização e o painel não muda de dia
+// antes da meia-noite local.
+export async function getToday(): Promise<string> {
+  const row = await queryOne<{ today: string }>(
+    "select to_char((now() at time zone 'America/Sao_Paulo')::date, 'YYYY-MM-DD') as today",
+  );
+  return row?.today ?? "1970-01-01";
+}
+
 export async function getDashboardStats(): Promise<DashboardStats> {
   const row = await queryOne<{
     active_projects: number;
@@ -157,7 +167,8 @@ export async function getDashboardStats(): Promise<DashboardStats> {
          from tasks t
          join board_columns c on c.id = t.column_id
          join statuses s on s.id = c.status_id
-        where s.kind <> 'done' and t.due_date < current_date) as overdue_tasks,
+        where s.kind <> 'done'
+          and t.due_date < (now() at time zone 'America/Sao_Paulo')::date) as overdue_tasks,
       (select count(*)::int from people where active) as active_people
   `);
 

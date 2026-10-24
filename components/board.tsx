@@ -58,10 +58,6 @@ export function Board({ board }: { board: BoardData }) {
     if (!taskBeforeMove) {
       return;
     }
-    if (taskBeforeMove.columnId === targetColumnId && beforeTaskId === null) {
-      return;
-    }
-
     setError("");
 
     startTransition(async () => {

@@ -1,23 +1,28 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { readSessionToken, SESSION_COOKIE } from "@/lib/session-token";
 
-const SESSION_COOKIE = "rpm_session";
-
-// Checagem otimista: só evita renderizar o app sem cookie nenhum.
-// A validação real da sessão acontece no layout de (app) e em cada action.
+// Primeira barreira: assinatura e validade do cookie. A segunda acontece no
+// layout de (app), que consulta o banco para saber se a pessoa ainda existe
+// e está ativa.
 export function proxy(request: NextRequest) {
-  const hasSession = request.cookies.has(SESSION_COOKIE);
+  const token = request.cookies.get(SESSION_COOKIE)?.value;
+  const session = token ? readSessionToken(token) : null;
+
+  if (session) {
+    return NextResponse.next();
+  }
+
   const { pathname } = request.nextUrl;
+  const response =
+    pathname === "/login"
+      ? NextResponse.next()
+      : NextResponse.redirect(new URL("/login", request.url));
 
-  if (!hasSession && pathname !== "/login") {
-    const loginUrl = new URL("/login", request.url);
-    return NextResponse.redirect(loginUrl);
+  if (token) {
+    response.cookies.delete(SESSION_COOKIE);
   }
 
-  if (hasSession && pathname === "/login") {
-    return NextResponse.redirect(new URL("/", request.url));
-  }
-
-  return NextResponse.next();
+  return response;
 }
 
 export const config = {

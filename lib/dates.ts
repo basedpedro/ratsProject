@@ -6,18 +6,26 @@ export function todayIso(): string {
   return `${year}-${month}-${day}`;
 }
 
-export function isOverdue(dueDate: string | null): boolean {
+export function isOverdueOn(dueDate: string | null, today: string): boolean {
   if (!dueDate) {
     return false;
   }
-  return dueDate < todayIso();
+  return dueDate < today;
+}
+
+export function isTodayOn(dueDate: string | null, today: string): boolean {
+  if (!dueDate) {
+    return false;
+  }
+  return dueDate === today;
+}
+
+export function isOverdue(dueDate: string | null): boolean {
+  return isOverdueOn(dueDate, todayIso());
 }
 
 export function isToday(dueDate: string | null): boolean {
-  if (!dueDate) {
-    return false;
-  }
-  return dueDate === todayIso();
+  return isTodayOn(dueDate, todayIso());
 }
 
 // "2026-11-03" vira "03/11".

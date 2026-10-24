@@ -45,15 +45,23 @@ export async function withTransaction<T>(
   run: (client: PoolClient) => Promise<T>,
 ): Promise<T> {
   const client = await pool.connect();
+  let isBroken = false;
+
   try {
     await client.query("begin");
     const result = await run(client);
     await client.query("commit");
     return result;
   } catch (error) {
-    await client.query("rollback");
+    try {
+      await client.query("rollback");
+    } catch {
+      // Conexão morreu no meio da transação: descarta o client em vez de
+      // devolver ao pool um estado sujo.
+      isBroken = true;
+    }
     throw error;
   } finally {
-    client.release();
+    client.release(isBroken);
   }
 }

@@ -20,6 +20,20 @@ const optionalUuid = z
   })
   .transform((value) => (value === "" ? null : value));
 
+const integerFromForm = z
+  .string()
+  .trim()
+  .regex(/^\d+$/, "Use um número inteiro.")
+  .transform(Number)
+  .pipe(z.number().int().min(0).max(999));
+
+const priorityFromForm = z
+  .string()
+  .trim()
+  .regex(/^[123]$/, "Prioridade inválida.")
+  .transform(Number)
+  .pipe(z.number().int().min(1).max(3));
+
 const hexColor = z
   .string()
   .trim()
@@ -43,7 +57,7 @@ export const statusInput = z.object({
   name: requiredText("Nome", 40),
   color: hexColor,
   kind: z.enum(STATUS_KINDS),
-  sortOrder: z.coerce.number().int().min(0).max(999),
+  sortOrder: integerFromForm,
 });
 
 export const projectInput = z.object({
@@ -54,7 +68,7 @@ export const projectInput = z.object({
 export const columnInput = z.object({
   name: requiredText("Nome", 40),
   statusId: z.string().uuid("Escolha um status."),
-  sortOrder: z.coerce.number().int().min(0).max(999),
+  sortOrder: integerFromForm,
 });
 
 export const taskInput = z.object({
@@ -62,7 +76,7 @@ export const taskInput = z.object({
   description: optionalText(4000),
   columnId: z.string().uuid("Escolha uma coluna."),
   assigneeId: optionalUuid,
-  priority: z.coerce.number().int().min(1).max(3),
+  priority: priorityFromForm,
   dueDate: z
     .string()
     .trim()

@@ -10,6 +10,7 @@ Group=ratsdevpm
 WorkingDirectory=/srv/ratsdev-pm/current
 EnvironmentFile=/srv/ratsdev-pm/.env.local
 Environment=NODE_ENV=production
+Environment=TZ=America/Sao_Paulo
 Environment=PORT=3003
 ExecStart=/usr/bin/node node_modules/next/dist/bin/next start -p 3003 -H 127.0.0.1
 Restart=always

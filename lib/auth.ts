@@ -1,4 +1,3 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { connection } from "next/server";
@@ -6,55 +5,17 @@ import { cache } from "react";
 import { queryOne } from "@/lib/db";
 import type { Person } from "@/lib/domain";
 import { personRowToDomain, type PersonRow } from "@/lib/rows";
-
-const SESSION_COOKIE = "rpm_session";
-const SESSION_DURATION_SECONDS = 60 * 60 * 24 * 7;
-
-function getSecret(): string {
-  const secret = process.env.SESSION_SECRET;
-  if (!secret) {
-    throw new Error("SESSION_SECRET não definida.");
-  }
-  return secret;
-}
-
-function sign(value: string): string {
-  return createHmac("sha256", getSecret()).update(value).digest("base64url");
-}
-
-function encodeSession(personId: string, expiresAtSeconds: number): string {
-  const payload = `${personId}.${expiresAtSeconds}`;
-  return `${payload}.${sign(payload)}`;
-}
-
-function decodeSession(token: string): { personId: string; expiresAtSeconds: number } | null {
-  const parts = token.split(".");
-  if (parts.length !== 3) {
-    return null;
-  }
-
-  const [personId, expiresAtText, signature] = parts;
-  const payload = `${personId}.${expiresAtText}`;
-  const expected = Buffer.from(sign(payload));
-  const received = Buffer.from(signature);
-
-  if (expected.length !== received.length || !timingSafeEqual(expected, received)) {
-    return null;
-  }
-
-  const expiresAtSeconds = Number(expiresAtText);
-  if (!Number.isFinite(expiresAtSeconds) || expiresAtSeconds * 1000 < Date.now()) {
-    return null;
-  }
-
-  return { personId, expiresAtSeconds };
-}
+import {
+  createSessionToken,
+  readSessionToken,
+  SESSION_COOKIE,
+  SESSION_DURATION_SECONDS,
+} from "@/lib/session-token";
 
 export async function startSession(personId: string): Promise<void> {
-  const expiresAtSeconds = Math.floor(Date.now() / 1000) + SESSION_DURATION_SECONDS;
   const cookieStore = await cookies();
 
-  cookieStore.set(SESSION_COOKIE, encodeSession(personId, expiresAtSeconds), {
+  cookieStore.set(SESSION_COOKIE, createSessionToken(personId), {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
@@ -79,7 +40,7 @@ export const getCurrentPerson = cache(async (): Promise<Person | null> => {
     return null;
   }
 
-  const session = decodeSession(token);
+  const session = readSessionToken(token);
   if (!session) {
     return null;
   }
@@ -87,7 +48,7 @@ export const getCurrentPerson = cache(async (): Promise<Person | null> => {
   const row = await queryOne<PersonRow>(
     `select id, name, email, role, color, active
        from people
-      where id = $1 and password_hash is not null`,
+      where id = $1 and password_hash is not null and active`,
     [session.personId],
   );
 

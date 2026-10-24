@@ -57,7 +57,7 @@ export async function signIn(
   const person = await queryOne<{ id: string; password_hash: string }>(
     `select id, password_hash
        from people
-      where lower(email) = $1 and password_hash is not null`,
+      where lower(email) = $1 and password_hash is not null and active`,
     [email],
   );
 

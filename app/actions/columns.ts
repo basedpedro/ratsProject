@@ -3,6 +3,7 @@
 import { refresh } from "next/cache";
 import { requirePersonForAction } from "@/lib/auth";
 import { query, queryOne, withTransaction } from "@/lib/db";
+import { isPgError } from "@/lib/db-errors";
 import { errorState, successState, type FormState } from "@/lib/form-state";
 import { collectFieldErrors, columnInput } from "@/lib/validation";
 
@@ -27,28 +28,35 @@ export async function saveColumn(
 
   const column = parsed.data;
 
-  if (id) {
-    await query(
-      `update board_columns
-          set name = $2, status_id = $3, sort_order = $4
-        where id = $1`,
-      [id, column.name, column.statusId, column.sortOrder],
-    );
-  } else {
-    const project = await queryOne<{ id: string }>(
-      "select id from projects where id = $1",
-      [projectId],
-    );
+  try {
+    if (id) {
+      await query(
+        `update board_columns
+            set name = $2, status_id = $3, sort_order = $4
+          where id = $1`,
+        [id, column.name, column.statusId, column.sortOrder],
+      );
+    } else {
+      const project = await queryOne<{ id: string }>(
+        "select id from projects where id = $1",
+        [projectId],
+      );
 
-    if (!project) {
-      return errorState("Projeto não encontrado.");
+      if (!project) {
+        return errorState("Projeto não encontrado.");
+      }
+
+      await query(
+        `insert into board_columns (project_id, name, status_id, sort_order)
+         values ($1, $2, $3, $4)`,
+        [projectId, column.name, column.statusId, column.sortOrder],
+      );
     }
-
-    await query(
-      `insert into board_columns (project_id, name, status_id, sort_order)
-       values ($1, $2, $3, $4)`,
-      [projectId, column.name, column.statusId, column.sortOrder],
-    );
+  } catch (error) {
+    if (isPgError(error, "23503")) {
+      return errorState("O status escolhido não existe mais.");
+    }
+    throw error;
   }
 
   refresh();
@@ -66,24 +74,21 @@ export async function deleteColumn(
     return errorState("Coluna não encontrada.");
   }
 
-  const usage = await queryOne<{ total: number }>(
-    "select count(*)::int as total from tasks where column_id = $1",
+  // O not exists e o delete são a mesma instrução: uma tarefa criada
+  // no meio do caminho não é apagada em cascata sem aviso.
+  const deleted = await query<{ project_id: string }>(
+    `delete from board_columns
+      where id = $1
+        and not exists (select 1 from tasks where column_id = $1)
+      returning project_id`,
     [id],
   );
 
-  if (usage && usage.total > 0) {
-    return errorState(
-      `Essa coluna tem ${usage.total} tarefa(s). Mova ou exclua as tarefas antes.`,
-    );
+  if (deleted.length === 0) {
+    return errorState("Essa coluna ainda tem tarefas. Mova ou exclua antes.");
   }
 
-  const column = await queryOne<{ project_id: string }>(
-    "select project_id from board_columns where id = $1",
-    [id],
-  );
-
-  await query("delete from board_columns where id = $1", [id]);
-  await renumberColumns(column?.project_id ?? "");
+  await renumberColumns(deleted[0].project_id);
 
   refresh();
   return successState("Coluna excluída.");
